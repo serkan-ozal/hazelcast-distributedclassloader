@@ -30,7 +30,7 @@ public class Test1 {
         System.out.println("Main classloader   : " + Test1.class.getClassLoader());
         
 		try {
-			Class<?> clazz = Class.forName("demo.Foo");
+			Class<?> clazz = Class.forName("demo1.Foo");
 			System.out.println("Class              : " + clazz.getName());
 			System.out.println("Class Loader       : " + clazz.getClassLoader());
 			Object instance = clazz.newInstance();
