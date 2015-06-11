@@ -16,6 +16,8 @@
 
 package com.hazelcast.distributedclassloader;
 
+import com.hazelcast.core.HazelcastInstance;
+
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
@@ -27,19 +29,18 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * {@link URLClassLoader} implementation to search unknown classes 
+ * {@link URLClassLoader} implementation to search unknown classes
  * over Hazelcast Distributed ClassLoader cluster.
- * 
+ *
  * @author Serkan OZAL
  */
 // -Djava.system.class.loader=com.hazelcast.distributedclassloader.HazelcastDistributedClassLoader
 public class HazelcastDistributedClassLoader extends URLClassLoader {
 
-    private static final Logger LOGGER = 
+    private static final Logger LOGGER =
             Logger.getLogger(HazelcastDistributedClassLoader.class.getName());
-
     private static final URL[] URLS = findClasspathUrls();
-
+    private static volatile HazelcastInstance hazelcastInstance;
     private boolean initInProgress;
     private ClassLoader parent;
     private HazelcastDistributedClassLoaderProcessor processor;
@@ -53,65 +54,18 @@ public class HazelcastDistributedClassLoader extends URLClassLoader {
         this.parent = parent;
     }
 
-    @Override
-    protected Class<?> loadClass(String name, boolean resolve)
-            throws ClassNotFoundException {
-        Class<?> clazz = findLoadedClass(name);
-        if (clazz == null) {
-            LOGGER.finest("Will load class: " + name);
-            if (parent != null 
-                &&
-                (
-                    name.startsWith("java") || name.startsWith("javax") || 
-                    name.startsWith("sun") || name.startsWith("com.sun") || 
-                    name.startsWith("com.hazelcast")
-                )) {
-                clazz = parent.loadClass(name);
-                LOGGER.finest("Loaded class: " + name + 
-                              " and its classloader is " + clazz.getClassLoader());
-                if (String.class.equals(clazz)) {
-                    initIfNeeded();
-                }
-            } else {
-                clazz = findClass(name);
-            }
-        }
-        if (resolve) {
-            resolveClass(clazz);
-        }
-        return clazz;
+    public static HazelcastInstance getHazelcastInstance() {
+        return hazelcastInstance;
     }
 
-    @SuppressWarnings("deprecation")
-    @Override
-    protected synchronized Class<?> findClass(String name)
-            throws ClassNotFoundException {
-        try {
-            LOGGER.finest("Will find class: " + name);
-            Class<?> clazz = super.findClass(name);
-            LOGGER.finest("Found class: " + name + " and its classloader is " + 
-                          clazz.getClassLoader());
-            return clazz;
-        } catch (ClassNotFoundException e) {
-            if (initInProgress || name.startsWith("com.hazelcast")) {
-                throw e;
-            }
-
-            initIfNeeded();
-
-            byte[] classDef = processor.getClassData(name);
-            if (classDef == null) {
-                throw new ClassNotFoundException(name);
-            } else {
-                return defineClass(classDef, 0, classDef.length);
-            }
-        }
+    public static void setHazelcastInstance(HazelcastInstance instance) {
+        hazelcastInstance = instance;
     }
 
     private static URL[] findClasspathUrls() {
         Set<URL> urls = new HashSet<URL>();
         try {
-            String[] classpathProperties = 
+            String[] classpathProperties =
                     System.getProperty("java.class.path").split(File.pathSeparator);
             for (String classpathProperty : classpathProperties) {
                 urls.add(new File(classpathProperty).toURI().toURL());
@@ -155,6 +109,61 @@ public class HazelcastDistributedClassLoader extends URLClassLoader {
         return urls;
     }
 
+    @Override
+    protected Class<?> loadClass(String name, boolean resolve)
+            throws ClassNotFoundException {
+        Class<?> clazz = findLoadedClass(name);
+        if (clazz == null) {
+            LOGGER.finest("Will load class: " + name);
+            if (parent != null
+                    &&
+                    (
+                            name.startsWith("java") || name.startsWith("javax") ||
+                                    name.startsWith("sun") || name.startsWith("com.sun") ||
+                                    name.startsWith("com.hazelcast")
+                    )) {
+                clazz = parent.loadClass(name);
+                LOGGER.finest("Loaded class: " + name +
+                        " and its classloader is " + clazz.getClassLoader());
+                if (String.class.equals(clazz)) {
+                    initIfNeeded();
+                }
+            } else {
+                clazz = findClass(name);
+            }
+        }
+        if (resolve) {
+            resolveClass(clazz);
+        }
+        return clazz;
+    }
+
+    @SuppressWarnings("deprecation")
+    @Override
+    protected synchronized Class<?> findClass(String name)
+            throws ClassNotFoundException {
+        try {
+            LOGGER.finest("Will find class: " + name);
+            Class<?> clazz = super.findClass(name);
+            LOGGER.finest("Found class: " + name + " and its classloader is " +
+                    clazz.getClassLoader());
+            return clazz;
+        } catch (ClassNotFoundException e) {
+            if (initInProgress || name.startsWith("com.hazelcast")) {
+                throw e;
+            }
+
+            initIfNeeded();
+
+            byte[] classDef = processor.getClassData(name);
+            if (classDef == null) {
+                throw new ClassNotFoundException(name);
+            } else {
+                return defineClass(classDef, 0, classDef.length);
+            }
+        }
+    }
+
     private synchronized void init() throws ClassNotFoundException {
         initInProgress = true;
         try {
@@ -173,16 +182,9 @@ public class HazelcastDistributedClassLoader extends URLClassLoader {
             init();
         }
     }
-    
-    public void destroy() {
-        if (processor != null) {
-            processor.destroy();
-        }
-    }
 
     @Override
     protected void finalize() throws Throwable {
-        destroy();
     }
 
 }

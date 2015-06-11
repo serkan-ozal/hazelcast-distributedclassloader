@@ -16,48 +16,43 @@
 
 package com.hazelcast.distributedclassloader;
 
-import java.util.concurrent.Future;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-
-import com.hazelcast.config.Config;
 import com.hazelcast.core.Cluster;
-import com.hazelcast.core.Hazelcast;
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.core.IExecutorService;
 import com.hazelcast.core.IMap;
 import com.hazelcast.core.Member;
 
+import java.util.concurrent.Future;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 /**
- * Finds data (bytecode / byte[]) of {@link Class} with given name 
+ * Finds data (bytecode / byte[]) of {@link Class} with given name
  * over Hazelcast Distributed ClassLoader group.
- * 
+ *
  * @author Serkan OZAL
  */
 public class HazelcastDistributedClassLoaderProcessor {
 
-    private static final Logger LOGGER = 
+    private static final Logger LOGGER =
             Logger.getLogger(HazelcastDistributedClassLoaderProcessor.class.getName());
-    
-    private HazelcastInstance hazelcastInstance;
-    private IExecutorService executorService;
-    private Cluster cluster;
-    private IMap<String, ClassData> classDataMap;
+
+    private static final String EXECUTOR_NAME = "hz-distributedclassloader-executor";
+    private static final String MAP_NAME = "hz-distributedclassloader-map";
+
 
     public HazelcastDistributedClassLoaderProcessor() {
-        init();
     }
 
-    private void init() {
-        Config config = new Config();
-        config.getGroupConfig().setName("hz-distributedclassloader-group");
-        hazelcastInstance = Hazelcast.newHazelcastInstance(config);
-        executorService = hazelcastInstance.getExecutorService("hz-distributedclassloader-executor");
-        classDataMap = hazelcastInstance.getMap("hz-distributedclassloader-map");
-        cluster = hazelcastInstance.getCluster();
-    }
 
     public byte[] getClassData(String className) {
+        HazelcastInstance instance = HazelcastDistributedClassLoader.getHazelcastInstance();
+        if (instance == null) {
+            return null;
+        }
+        IMap<String, ClassData> classDataMap = instance.getMap(MAP_NAME);
+        Cluster cluster = instance.getCluster();
+        IExecutorService executorService = instance.getExecutorService(EXECUTOR_NAME);
         ClassData classData = classDataMap.get(className);
         if (classData != null) {
             return classData.getClassDefinition();
@@ -66,7 +61,7 @@ public class HazelcastDistributedClassLoaderProcessor {
             if (member.localMember()) {
                 continue;
             }
-            Future<ClassData> classDataFuture = 
+            Future<ClassData> classDataFuture =
                     executorService.submitToMember(
                             new ClassDataFinder(className), member);
             try {
@@ -79,17 +74,11 @@ public class HazelcastDistributedClassLoaderProcessor {
                     }
                 }
             } catch (Exception e) {
-                LOGGER.log(Level.SEVERE, "Unable to get class data for class " + className + 
-                           " from member " + member, e);
+                LOGGER.log(Level.SEVERE, "Unable to get class data for class " + className +
+                        " from member " + member, e);
             }
         }
         return null;
-    }
-
-    public void destroy() {
-        if (hazelcastInstance != null) {
-            hazelcastInstance.shutdown();
-        }
     }
 
 }
