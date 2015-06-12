@@ -27,6 +27,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
 
+// Run with "-Djava.system.class.loader=com.hazelcast.distributedclassloader.HazelcastDistributedClassLoader"
 public class Test {
 
     public static void main(String[] args) throws Exception {
