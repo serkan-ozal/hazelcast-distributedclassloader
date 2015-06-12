@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.hazelcast.distributedclassloader;
+package com.hazelcast.distributedclassloader.impl;
 
 import java.util.concurrent.Future;
 import java.util.logging.Level;
@@ -27,37 +27,71 @@ import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.core.IExecutorService;
 import com.hazelcast.core.IMap;
 import com.hazelcast.core.Member;
+import com.hazelcast.distributedclassloader.ClassData;
+import com.hazelcast.distributedclassloader.ClassDataFinder;
 
 /**
  * Finds data (bytecode / byte[]) of {@link Class} with given name 
  * over Hazelcast Distributed ClassLoader group.
- * 
+ *
  * @author Serkan OZAL
  */
-public class HazelcastDistributedClassLoaderProcessor {
+public class ClassDataRetriever {
 
     private static final Logger LOGGER = 
-            Logger.getLogger(HazelcastDistributedClassLoaderProcessor.class.getName());
+            Logger.getLogger(ClassDataRetriever.class.getName());
     
-    private HazelcastInstance hazelcastInstance;
+    private volatile HazelcastInstance hazelcastInstance;
     private IExecutorService executorService;
     private Cluster cluster;
     private IMap<String, ClassData> classDataMap;
 
-    public HazelcastDistributedClassLoaderProcessor() {
-        init();
+    public ClassDataRetriever() {
+        init(null);
     }
 
-    private void init() {
-        Config config = new Config();
-        config.getGroupConfig().setName("hz-distributedclassloader-group");
-        hazelcastInstance = Hazelcast.newHazelcastInstance(config);
+    public ClassDataRetriever(boolean init) {
+        if (init) {
+            init(null);
+        }
+    }
+
+    public ClassDataRetriever(HazelcastInstance hzInstance) {
+        init(hzInstance);
+    }
+
+    public boolean isAvailable() {
+        return hazelcastInstance != null;
+    }
+
+    private void init(HazelcastInstance hzInstance) {
+        if (hzInstance == null) {
+            Config config = new Config();
+            config.getGroupConfig().setName("hz-distributedclassloader-group");
+            hazelcastInstance = Hazelcast.newHazelcastInstance(config);
+        } else {
+            hazelcastInstance = hzInstance;
+        }
         executorService = hazelcastInstance.getExecutorService("hz-distributedclassloader-executor");
         classDataMap = hazelcastInstance.getMap("hz-distributedclassloader-map");
         cluster = hazelcastInstance.getCluster();
     }
 
-    public byte[] getClassData(String className) {
+    public HazelcastInstance getHazelcastInstance() {
+        return hazelcastInstance;
+    }
+
+    public void setHazelcastInstance(HazelcastInstance hazelcastInstance) {
+        init(hazelcastInstance);
+    }
+
+    public byte[] getClassData(String className, ClassDataFinder classDataFinder) {
+        if (!isAvailable()) {
+            return null;
+        }
+        if (classDataFinder == null) {
+            classDataFinder = new DefaultClassDataFinder(className);
+        }
         ClassData classData = classDataMap.get(className);
         if (classData != null) {
             return classData.getClassDefinition();
@@ -67,8 +101,7 @@ public class HazelcastDistributedClassLoaderProcessor {
                 continue;
             }
             Future<ClassData> classDataFuture = 
-                    executorService.submitToMember(
-                            new ClassDataFinder(className), member);
+                    executorService.submitToMember(classDataFinder, member);
             try {
                 classData = classDataFuture.get();
                 if (classData != null) {

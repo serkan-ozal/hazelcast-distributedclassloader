@@ -18,45 +18,12 @@ package com.hazelcast.distributedclassloader;
 
 import java.io.Serializable;
 import java.util.concurrent.Callable;
-import java.util.logging.Logger;
-
-import com.sun.org.apache.bcel.internal.Repository;
-import com.sun.org.apache.bcel.internal.classfile.JavaClass;
 
 /**
  * Finds {@link ClassData} of {@link Class} with given name.
  * 
  * @author Serkan OZAL
  */
-@SuppressWarnings({ "serial", "restriction" })
-public class ClassDataFinder implements Callable<ClassData>, Serializable {
-
-    private static final Logger LOGGER = 
-            Logger.getLogger(ClassDataFinder.class.getName());
-
-    private final String className;
-
-    public ClassDataFinder(String className) {
-        this.className = className;
-    }
-
-    @Override
-    public ClassData call() {
-        LOGGER.info("Getting data for class " + className + " ...");
-
-        Class<?> clazz = null;
-        try {
-            clazz = Class.forName(className);
-        } catch (ClassNotFoundException e) {
-            LOGGER.severe("Couldn't find class " + className);
-            return null;
-        }
-        JavaClass javaClass = Repository.lookupClass(clazz);
-        if (javaClass == null) {
-            return null;
-        }
-        byte[] classDef = javaClass.getBytes();
-        return new ClassData(classDef);
-    }
+public interface ClassDataFinder extends Callable<ClassData>, Serializable {
 
 }
