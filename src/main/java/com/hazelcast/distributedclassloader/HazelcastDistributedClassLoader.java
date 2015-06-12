@@ -18,15 +18,16 @@ package com.hazelcast.distributedclassloader;
 
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.distributedclassloader.impl.ClassDataRetriever;
+import com.hazelcast.distributedclassloader.impl.ClasspathUtil;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.StringTokenizer;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -43,20 +44,29 @@ public class HazelcastDistributedClassLoader extends URLClassLoader {
 
     private static HazelcastDistributedClassLoader INSTANCE;
 
-    protected static final URL[] URLS = findClasspathUrls();
-
     protected boolean initInProgress;
     protected ClassLoader parent;
     protected ClassDataRetriever classDataRetriever;
+    protected final Set<String> classNamePrefixesToAskParent = new HashSet<String>();
 
     public HazelcastDistributedClassLoader() {
-        super(URLS);
+        super(findClasspathUrls(null));
+        setUp(null);
         INSTANCE = this;
     }
 
     public HazelcastDistributedClassLoader(ClassLoader parent) {
-        super(URLS, null);
+        super(findClasspathUrls(parent), null);
         this.parent = parent;
+        setUp(null);
+        INSTANCE = this;
+    }
+
+    public HazelcastDistributedClassLoader(ClassLoader parent,
+                                           Collection<String> classNamePrefixesToAskParent) {
+        super(findClasspathUrls(parent), null);
+        this.parent = parent;
+        setUp(classNamePrefixesToAskParent);
         INSTANCE = this;
     }
 
@@ -64,18 +74,8 @@ public class HazelcastDistributedClassLoader extends URLClassLoader {
         return INSTANCE;
     }
 
-    protected static URL[] findClasspathUrls() {
-        Set<URL> urls = new HashSet<URL>();
-        try {
-            String[] classpathProperties =
-                    System.getProperty("java.class.path").split(File.pathSeparator);
-            for (String classpathProperty : classpathProperties) {
-                urls.add(new File(classpathProperty).toURI().toURL());
-            }
-            urls.addAll(getExtURLs(getExtDirs()));
-        } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, "Unable to find classpath urls !", e);
-        }
+    protected static URL[] findClasspathUrls(ClassLoader classLoader) {
+        Set<URL> urls = ClasspathUtil.findClasspathUrls(classLoader);
         return urls.toArray(new URL[0]);
     }
 
@@ -111,6 +111,19 @@ public class HazelcastDistributedClassLoader extends URLClassLoader {
         return urls;
     }
 
+    private void setUp(Collection<String> additionalPrefixes) {
+        classNamePrefixesToAskParent.add("java");
+        classNamePrefixesToAskParent.add("javax");
+        classNamePrefixesToAskParent.add("sun");
+        classNamePrefixesToAskParent.add("com.sun");
+        classNamePrefixesToAskParent.add("com.hazelcast");
+        if (additionalPrefixes != null) {
+            for (String prefix : additionalPrefixes) {
+                classNamePrefixesToAskParent.add(prefix);
+            }
+        }
+    }
+
     @Override
     protected Class<?> loadClass(String name, boolean resolve)
             throws ClassNotFoundException {
@@ -135,9 +148,12 @@ public class HazelcastDistributedClassLoader extends URLClassLoader {
     }
 
     protected boolean shouldLoadWithParentClassLoader(String name) {
-        return name.startsWith("java") || name.startsWith("javax") ||
-               name.startsWith("sun") || name.startsWith("com.sun") ||
-               name.startsWith("com.hazelcast");
+        for (String prefix : classNamePrefixesToAskParent) {
+            if (name.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     protected boolean shouldLoadedClassTriggerInitialize(Class<?> clazz) {
